@@ -1,9 +1,9 @@
-module id_stage(
+module id_stage (
     input  logic        clk,
     input  logic        reset,
     input  logic        stall,
     input  logic [31:0] instruction,
-    input  logic [31:0] wb_data,      // data to write back (from the WB stage)
+    input  logic [31:0] wb_data,        // data to write back (from the WB stage)
     output logic [31:0] rs1_data,
     output logic [31:0] rs2_data,
     output logic [31:0] imm_out,
@@ -20,60 +20,70 @@ module id_stage(
     output logic        mux_inp
 );
 
-    // Internal wires connecting the Decoder to other sub-modules
-    logic [4:0]  rs1;
-    logic [4:0]  rs2;
-    logic [4:0]  rd;
+    // decoder outputs
+    logic [4:0]  rs1_sel;
+    logic [4:0]  rs2_sel;
+    logic [4:0]  rd_sel;
+    logic [6:0]  opcode;
+    logic [2:0]  fn3;
     logic [11:0] imm;
     logic [19:0] imm_uj;
 
-    // 1. Decoder
-    decoder decoder_inst (
+    // main control output
+    logic        reg_write_ctrl;
+    logic        reg_write_gated;
+
+    decoder u_decoder (
         .instruction (instruction),
-        .rs1         (rs1),
-        .rs2         (rs2),
-        .rd          (rd),
-        .opcode      (opcode_out_d),
+        .rs1         (rs1_sel),
+        .rs2         (rs2_sel),
+        .rd          (rd_sel),
+        .opcode      (opcode),
         .imm11_5     (imm11_5),
-        .fn3         (fn3_out_d),
+        .fn3         (fn3),
         .imm         (imm),
         .imm_uj      (imm_uj),
         .fn7_5       (fn7_5)
     );
 
-    // 2. Immediate Generator
-    imm_generator imm_gen_inst (
-        .instruction (instruction),
-        .opcode      (opcode_out_d),
-        .imm_out     (imm_out)
+    imm_generator u_imm_generator (
+        .imm_input    (imm),
+        .fn3          (fn3),
+        .opcode       (opcode),
+        .imm_input_uj (imm_uj),
+        .imm_output   (imm_out)
     );
 
-    // 3. Register File
-    // Note: rd_wb (Write Address) and reg_write (Write Enable) are typically 
-    // needed from the WB stage but aren't in this module's input list.
-    register_file reg_file_inst (
-        .clk         (clk),
-        .reset       (reset),
-        .read_reg1   (rs1),
-        .read_reg2   (rs2),
-        // .write_reg  (rd_wb_in),       // Needs to come from WB stage
-        // .reg_write  (reg_write_in),   // Needs to come from WB stage
-        .write_data  (wb_data),
-        .read_data1  (rs1_data),
-        .read_data2  (rs2_data)
+    main_control u_main_control (
+        .opcode    (opcode),
+        .fn3       (fn3),
+        .memtoreg  (memtoreg),
+        .branch    (branch),
+        .mux_inp   (mux_inp),
+        .memread   (mem_read),
+        .memwrite  (mem_write),
+        .alusrc    (alu_src),
+        .reg_write (reg_write_ctrl),
+        .aluop     (aluop)
     );
 
-    // 4. Main Control
-    main_control main_ctrl_inst (
-        .opcode      (opcode_out_d),
-        .aluop       (aluop),
-        .memtoreg    (memtoreg),
-        .branch      (branch),
-        .mem_write   (mem_write),
-        .mem_read    (mem_read),
-        .alu_src     (alu_src),
-        .mux_inp     (mux_inp)
-        // .reg_write(reg_write_out)     // Usually generated here to pass down pipeline
+    // no register is written while stalled
+    assign reg_write_gated = reg_write_ctrl && !stall;
+
+    register_file u_register_file (
+        .rs1_sel   (rs1_sel),
+        .rs2_sel   (rs2_sel),
+        .reg_write (reg_write_gated),
+        .clk       (clk),
+        .reset     (reset),
+        .wb_data   (wb_data),
+        .rd_sel    (rd_sel),
+        .rs1_data  (rs1_data),
+        .rs2_data  (rs2_data)
     );
+
+    // decoder outputs passed on
+    assign opcode_out_d = opcode;
+    assign fn3_out_d    = fn3;
 
 endmodule
